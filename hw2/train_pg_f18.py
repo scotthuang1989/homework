@@ -82,7 +82,7 @@ class Agent(object):
     def init_tf_sess(self):
         tf_config = tf.ConfigProto(inter_op_parallelism_threads=1, intra_op_parallelism_threads=1)
         tf_config.gpu_options.allow_growth = True  # pylint: disable=E1101
-        tf_config.gpu_options.visible_device_list = '0'
+        tf_config.gpu_options.visible_device_list = '0' # pylint: disable=E1101
         self.sess = tf.Session(config=tf_config)
         self.sess.__enter__() # equivalent to `with self.sess:`
         tf.global_variables_initializer().run() #pylint: disable=E1101
@@ -181,11 +181,11 @@ class Agent(object):
         if self.discrete:
             sy_logits_na = policy_parameters
             # YOUR_CODE_HERE
-            sy_sampled_ac = tf.multinomial(sy_logits_na,1)
+            sy_sampled_ac = tf.squeeze(tf.multinomial(sy_logits_na,1), axis=1)
         else:
             sy_mean, sy_logstd = policy_parameters
             # YOUR_CODE_HERE
-            sy_sampled_ac = sy_mean + tf.random_normal(tf.shape(self.ac_dim))*tf.exp(sy_logstd)
+            sy_sampled_ac = sy_mean + tf.random_normal(tf.shape(sy_mean))*tf.exp(sy_logstd)
         return sy_sampled_ac
 
     #========================================================================================#
@@ -312,9 +312,7 @@ class Agent(object):
             #====================================================================================#
             #                           ----------PROBLEM 3----------
             #====================================================================================#
-            # TODO: shape of ac: (size_of_ob, size_of_ac_dim) or [(size_of_ob, size_of_ac_dim)]
             ac = self.sess.run(self.sy_sampled_ac, feed_dict={self.sy_ob_no:ob.reshape(-1,self.ob_dim)})
-            print(ac)
             ac = ac[0]
             acs.append(ac)
             ob, rew, done, _ = env.step(ac)
@@ -404,7 +402,7 @@ class Agent(object):
                 t_sum = 0
                 t_r_list = []
                 for i in range(len(r_reversed)):
-                    t_sum += r_reversed[i] + self.gamma*t_sum
+                    t_sum = r_reversed[i] + self.gamma*t_sum
                     t_r_list.append(t_sum)
 
                 list.reverse(t_r_list)
@@ -416,8 +414,6 @@ class Agent(object):
                     t_sum += self.gamma**i * r[i]
 
                 reward_list += [t_sum]*len(r)
-            # for r in re_n:
-            #     reward_list.extend([sum(r)]*len(r))
 
         return np.array(reward_list)
 
