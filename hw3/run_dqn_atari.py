@@ -99,8 +99,10 @@ def get_session():
     tf_config = tf.ConfigProto(
         inter_op_parallelism_threads=1,
         intra_op_parallelism_threads=1)
+    tf_config.gpu_options.allow_growth = True  # pylint: disable=E1101
+    tf_config.gpu_options.visible_device_list = '1' # pylint: disable=E1101
     session = tf.Session(config=tf_config)
-    print("AVAILABLE GPUS: ", get_available_gpus())
+    # print("AVAILABLE GPUS: ", get_available_gpus())
     return session
 
 def get_env(task, seed):

@@ -159,7 +159,26 @@ class QLearner(object):
     ######
 
     # YOUR CODE HERE
+    self.q_net = q_func(obs_t_float, self.num_actions, "q_func", reuse=False)
+    self.q_target = q_func(obs_tp1_float, self.num_actions, "q_target", reuse=False)
 
+    self.best_action = tf.argmax(self.q_net, axis=1)
+
+    q_func_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='q_func')
+    target_q_func_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='q_target')
+
+    # Bellman error
+    # max_q = tf.reduce_max(self.q_target, axis = 1)
+    # y = self.rew_t_ph + gamma * tf.multiply((1.0 - self.done_mask_ph), max_q)
+    # self.total_error = tf.reduce_mean(huber_loss(y - self.q_net))
+
+    max_q = tf.reduce_max(self.q_target, axis = 1)
+    y = self.rew_t_ph + gamma * tf.multiply((1.0 - self.done_mask_ph), max_q)
+    q_t_taken = tf.reduce_sum(tf.multiply(self.q_net, tf.one_hot(self.act_t_ph, self.num_actions)), axis = 1)
+
+    # TODO: DIFF chagne from huber_loss to MSE
+    self.total_error = tf.reduce_mean(huber_loss(y - q_t_taken))
+    # self.total_error = tf.losses.mean_squared_error(y, q_t_taken)
     ######
 
     # construct optimization op (with gradient clipping)
@@ -227,6 +246,31 @@ class QLearner(object):
     # might as well be random, since you haven't trained your net...)
 
     #####
+    # ocess self.last_obs before feed into network.
+    next_index = self.replay_buffer.store_frame(self.last_obs)
+    random_action = random.randint(0, self.num_actions-1)
+    if self.model_initialized:
+        input_obs = self.replay_buffer.encode_recent_observation()
+        action = self.session.run(self.best_action, feed_dict={self.obs_t_ph:[input_obs]})
+        # epsilon greedy exploration
+        epsilon = self.exploration.value(self.t)
+        if random.random() > epsilon:
+            action = action
+        else:
+            action = random_action
+    else:
+        action = random_action
+        
+    obs, reward, done, info = self.env.step(action)
+
+    # store frame at index i, then store (action, reward, done) at index i accordingly?
+    
+    self.replay_buffer.store_effect(next_index, action, reward, done)
+
+    if done:
+        obs = self.env.reset()
+    self.last_obs = obs
+    
 
     # YOUR CODE HERE
 
@@ -274,8 +318,37 @@ class QLearner(object):
       #####
 
       # YOUR CODE HERE
+        # 3.a sample transitions
+        obs_batch, act_batch, rew_batch, next_obs_batch, done_mask = self.replay_buffer.sample(self.batch_size)
 
-      self.num_param_updates += 1
+        # 3.b initialze model if it not initialized
+        if not self.model_initialized:
+            # TODO: whether sync up target_network when intialize network don't have difference.
+            # method 1:
+            self.session.run(tf.global_variables_initializer())
+            self.session.run(self.update_target_fn)
+            # method 2
+            # initialize_interdependent_variables(self.session, tf.global_variables(), {
+            #     self.obs_t_ph: obs_batch,
+            #     self.obs_tp1_ph: next_obs_batch,
+            # }) 
+            self.model_initialized = True
+
+        # 3.c train the model
+        lr = self.optimizer_spec.lr_schedule.value(self.t)
+        self.session.run(self.train_fn, feed_dict={self.obs_t_ph:obs_batch,
+                                                    self.act_t_ph:act_batch,
+                                                    self.rew_t_ph:rew_batch,
+                                                    self.obs_tp1_ph:next_obs_batch,
+                                                    self.done_mask_ph:done_mask,
+                                                    self.learning_rate:lr}
+                        )
+
+        self.num_param_updates += 1
+
+        # 3.d periodictally update the target network
+        if self.num_param_updates % self.target_update_freq == 0:
+            self.session.run(self.update_target_fn)
 
     self.t += 1
 
